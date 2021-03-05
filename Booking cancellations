@@ -1,0 +1,149 @@
+import numpy as np
+import pandas as pd
+import seaborn as sns
+import matplotlib.pyplot as plt
+%matplotlib inline
+
+df=pd.read_csv('hotel_bookings.csv')
+df.head(10)
+
+print("# of NaN in each columns:", df.isnull().sum(), sep='\n')
+
+#plot title
+plt.title("Canceled or not", fontdict = {'fontsize': 15})
+ax = sns.countplot(x = "is_canceled", hue = 'is_repeated_guest', data = df)
+
+
+#plot size
+plt.figure(figsize = (12,8))
+#plot title
+plt.title("Countplot Distrubiton of Segment by Deposit Type", fontdict = {'fontsize':15})
+ax = sns.countplot(x = "market_segment", hue = 'deposit_type', data = df)
+
+
+plt.figure(figsize = (12,8))
+plt.title("Countplot Distributon of Segments by Cancellation", fontdict = {'fontsize':15})
+ax = sns.countplot(x = "market_segment", hue = 'is_canceled', data = df)
+
+
+def perc_mv(x, y):
+    perc = y.isnull().sum() / len(x) * 100
+    return perc
+
+print('Missing value ratios:\nCompany: {}\nAgent: {}\nCountry: {}\nChildren: {}'.format(
+    perc_mv(df, df['company']),
+    perc_mv(df, df['agent']),
+    perc_mv(df, df['country']), 
+    perc_mv(df, df['children'])))
+    
+df = df.drop(['company'], axis = 1)
+df['children'] = df['children'].fillna(0)
+df.dtypes
+
+df['hotel'] = [1 if x == "Resort Hotel" else 0 for x in df['hotel']]
+
+df
+
+df['arrival_date_month'] = df['arrival_date_month'].map({'January':1, 'February': 2, 'March':3, 'April':4, 'May':5, 'June':6, 'July':7,
+                                                            'August':8, 'September':9, 'October':10, 'November':11, 'December':12})
+
+def family(data):
+    if ((data['adults'] > 0) & (data['children'] > 0)):
+        val = 1
+    elif ((data['adults'] > 0) & (data['babies'] > 0)):
+        val = 1
+    else:
+        val = 0
+    return val
+
+
+
+def deposit(data):
+    if ((data['deposit_type'] == 'No Deposit') | (data['deposit_type'] == 'Refundable')):
+        return 0
+    else:
+        return 1
+    
+def feature(data):
+    data["is_family"] = data.apply(family, axis = 1)
+    data["total_customer"] = data["adults"] + data["children"] + data["babies"]
+    data["deposit_given"] = data.apply(deposit, axis=1)
+    data["total_nights"] = data["stays_in_weekend_nights"]+ data["stays_in_week_nights"]
+    return data
+    
+df = feature(df)
+
+df = df.drop(columns = ['adults', 'babies', 'children', 'deposit_type', 'reservation_status_date'])
+
+cor_df = df.copy()
+
+
+from sklearn.preprocessing import LabelEncoder
+le = LabelEncoder()
+cor_df['reservation_status'] = le.fit_transform(cor_df['reservation_status']) 
+cor_df.corr()
+
+cor_df.corr()["is_canceled"].sort_values()
+df = df.drop(columns = [ 'arrival_date_week_number', 'stays_in_weekend_nights', 'arrival_date_month', 'agent'], axis = 1)
+indices = df.loc[pd.isna(df["country"]), :].index 
+df = df.drop(df.index[indices])  
+
+df = pd.get_dummies(data = df, columns = ['meal', 'market_segment', 'distribution_channel',
+                                            'reserved_room_type', 'assigned_room_type', 'customer_type', 'reservation_status'])
+le = LabelEncoder()
+df['country'] = le.fit_transform(df['country'])
+
+X = df.drop([ 'is_canceled'], axis = 'columns') 
+y = df['is_canceled'] 
+
+from sklearn.model_selection import train_test_split
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.30, random_state=42)
+
+from sklearn.tree import DecisionTreeClassifier
+cart = DecisionTreeClassifier(max_depth = 12)
+
+cart_model = cart.fit(X_train, y_train)
+y_pred_cart = cart_model.predict(X_test)
+
+from sklearn.metrics import accuracy_score, roc_auc_score, roc_curve, confusion_matrix, auc
+print('Decision Tree Model - reservation_status included')
+
+print('Accuracy Score: {}\n\nConfusion Matrix:\n {}\n\nAUC Score: {}'
+      .format(accuracy_score(y_test,y_pred_cart), confusion_matrix(y_test,y_pred_cart), roc_auc_score(y_test,y_pred_cart)))
+df = df.drop(columns = ['reservation_status_Canceled', 'reservation_status_Check-Out', 'reservation_status_No-Show'], axis = 1)
+
+y = df["is_canceled"]
+X = df.drop(["is_canceled"], axis=1)
+
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.30, random_state=42)
+dt = DecisionTreeClassifier(max_depth = 12)
+dt_model = dt.fit(X_train, y_train)
+y_pred_dt = dt_model.predict(X_test)
+
+
+print('Decision Tree Model - reservation_status excluded')
+
+print('Accuracy Score: {}\n\nConfusion Matrix:\n {}\n\nAUC Score: {}'
+      .format(accuracy_score(y_test,y_pred_dt), confusion_matrix(y_test,y_pred_dt), roc_auc_score(y_test,y_pred_dt)))
+      
+from sklearn.neighbors import KNeighborsClassifier
+knn = KNeighborsClassifier(n_neighbors = 10, p = 1)
+
+knn_model = knn.fit(X_train, y_train)
+y_pred_knn = knn_model.predict(X_test)
+
+print('K-Nearest Neighbors')
+
+print('Accuracy Score: {}\n\nConfusion Matrix:\n {}\n\nAUC Score: {}'
+      .format(accuracy_score(y_test,y_pred_knn), confusion_matrix(y_test,y_pred_knn), roc_auc_score(y_test,y_pred_knn)))
+      
+from sklearn.naive_bayes import GaussianNB
+nb  =  GaussianNB()
+nb_model = nb.fit(X_train, y_train)
+y_pred_nb = nb_model.predict(X_test)
+
+print('Naïve Bayes')
+
+print('Accuracy Score: {}\n\nConfusion Matrix:\n {}\n\nAUC Score: {}'
+      .format(accuracy_score(y_test,y_pred_nb), confusion_matrix(y_test,y_pred_nb), roc_auc_score(y_test,y_pred_nb)))
+
